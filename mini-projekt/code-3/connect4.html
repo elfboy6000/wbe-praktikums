@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Vier gewinnt</title>
+
+    <style>
+        div { box-sizing: border-box; }
+
+        .topbar {
+            width: 84vw;
+            margin: 24px auto 12px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        }
+
+        .status {
+            font-size: 16px;
+        }
+        .status b.red  { color: red; }
+        .status b.blue { color: blue; }
+
+        button {
+            padding: 10px 14px;
+            border: 1px solid #111;
+            background: #fff;
+            cursor: pointer;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+        button:active { transform: translateY(1px); }
+
+        .board {
+            width: 84vw;
+            margin: auto;
+            outline: 1px solid black;
+
+            display: grid;
+            grid-template-columns: repeat(7, 12vw);
+            grid-auto-rows: 12vw;
+            user-select: none;
+        }
+
+        .board .field {
+            border: 1px solid black;
+            width: 12vw;
+            height: 12vw;
+
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+
+        .board .field .piece {
+            width: 10vw;
+            height: 10vw;
+            border-radius: 50%;
+            margin: 1vw;
+        }
+
+        .board .field .blue { background-color: blue; }
+        .board .field .red  { background-color: red; }
+    </style>
+</head>
+
+<body>
+<div class="topbar">
+    <div class="status">
+        Next move: <span id="nextPlayer"></span>
+    </div>
+    <button id="newGameBtn" type="button">Neues Spiel</button>
+</div>
+
+<div class="board"></div>
+
+<!-- helper for DOM creation -->
+<script src="elt.js"></script>
+
+<!-- optional: only needed for Aufgabe 2 (memoizer) -->
+<script src="memo.js"></script>
+
+<script>
+    // -----------------------------
+    // Aufgabe 1: Events / Interaktiv
+    // -----------------------------
+
+    const ROWS = 6;
+    const COLS = 7;
+
+    let state = {
+        board: Array(ROWS).fill('').map(() => Array(COLS).fill('')),
+        turn: 'r' // 'r' = red, 'b' = blue
+    };
+
+    function playerLabel(turn) {
+        return turn === 'r'
+            ? '<b class="red">Red</b>'
+            : '<b class="blue">Blue</b>';
+    }
+
+    function updateStatus() {
+        document.getElementById('nextPlayer').innerHTML = playerLabel(state.turn);
+    }
+
+    function clearBoard() {
+        state.board = Array(ROWS).fill('').map(() => Array(COLS).fill(''));
+        state.turn = 'r';
+        showBoard();
+        updateStatus();
+    }
+
+    function showBoard() {
+        const boardEl = document.querySelector('.board');
+        boardEl.innerHTML = '';
+
+        for (let row = 0; row < ROWS; row++) {
+            for (let col = 0; col < COLS; col++) {
+                const cell = state.board[row][col];
+
+                let pieceEl = null;
+                if (cell === 'r') pieceEl = elt('div', { class: 'piece red' });
+                if (cell === 'b') pieceEl = elt('div', { class: 'piece blue' });
+
+                // store column on every field, so a click can resolve the column
+                const fieldEl = elt(
+                    'div',
+                    { class: 'field', 'data-col': String(col) },
+                    ...(pieceEl ? [pieceEl] : [])
+                );
+
+                boardEl.appendChild(fieldEl);
+            }
+        }
+    }
+
+    function dropInColumn(col) {
+        // find lowest free row in that column
+        for (let row = ROWS - 1; row >= 0; row--) {
+            if (state.board[row][col] === '') {
+                state.board[row][col] = state.turn;
+                // switch player
+                state.turn = (state.turn === 'r') ? 'b' : 'r';
+                return true;
+            }
+        }
+        // column full
+        return false;
+    }
+
+    // Event delegation: handle clicks on any field
+    document.querySelector('.board').addEventListener('click', (e) => {
+        const field = e.target.closest('.field');
+        if (!field) return;
+
+        const col = Number(field.getAttribute('data-col'));
+        if (!Number.isInteger(col)) return;
+
+        const changed = dropInColumn(col);
+        if (!changed) return; // ignore click if column is full
+
+        showBoard();
+        updateStatus();
+    });
+
+    document.getElementById('newGameBtn').addEventListener('click', () => {
+        clearBoard();
+    });
+
+    // Start with empty board, no timer
+    showBoard();
+    updateStatus();
+
+
+    // -----------------------------
+    // Aufgabe 2: Funktionen (trace + memo)
+    // (results shown in console)
+    // -----------------------------
+
+    function trace(func, funcname) {
+        return (...args) => {
+            console.log(funcname + "(" + args.toString() + ")");
+            return func(...args); // IMPORTANT: return the original function result
+        };
+    }
+
+    let fibonacci = (n) => {
+        if (n < 2) return n;
+        else return fibonacci(n - 1) + fibonacci(n - 2);
+    };
+
+    // --- Try trace (optional): uncomment to test, then comment out again as in instructions
+    // fibonacci = trace(fibonacci, "fibonacci");
+    // console.log("fibonacci(5) =", fibonacci(5));
+
+    // --- Timing without memo
+    console.time("fibonacci(30) without memo");
+    const f1 = fibonacci(30);
+    console.timeEnd("fibonacci(30) without memo");
+    console.log("result =", f1);
+
+    // --- Memoized fibonacci (uses memo from memo.js)
+    let fib2 = (n) => {
+        if (n < 2) return n;
+        else return fib2(n - 1) + fib2(n - 2);
+    };
+    fib2 = memo(fib2);
+
+    console.time("fibonacci(30) with memo");
+    const f2 = fib2(30);
+    console.timeEnd("fibonacci(30) with memo");
+    console.log("result =", f2);
+</script>
+</body>
+</html>

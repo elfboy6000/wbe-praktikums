@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Vier gewinnt</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+
+<div class="board"></div>
+
+<div class="controls">
+    <button id="loadBtn" type="button">Load</button>
+    <button id="saveBtn" type="button">Save</button>
+</div>
+
+<div class="message" id="message"></div>
+
+<script src="elt.js"></script>
+<script src="connect4-winner-browser.js"></script>
+
+<script>
+    const ROWS = 6;
+    const COLS = 7;
+
+    // LocalStorage key for the game state
+    const STORAGE_KEY = "c4state";
+
+    // game state
+    let state = {
+        board: Array(ROWS).fill('').map(() => Array(COLS).fill('')),
+        next: 'b',          // 'b' or 'r'
+        gameOver: false,
+        winner: ''          // 'b' or 'r' when gameOver=true
+    };
+
+    function otherPlayer(p) {
+        return p === 'b' ? 'r' : 'b';
+    }
+
+    function setMessage(msg) {
+        document.getElementById('message').textContent = msg || '';
+    }
+
+    // ✅ render-function (use this to build the board)
+    function render() {
+        const boardEl = document.querySelector(".board");
+
+        // clear board
+        while (boardEl.firstChild) boardEl.removeChild(boardEl.firstChild);
+
+        // draw 6x7 fields
+        for (let row = 0; row < ROWS; row++) {
+            for (let col = 0; col < COLS; col++) {
+                const cell = state.board[row][col];
+
+                let pieceEl = null;
+                if (cell === 'r') pieceEl = elt("div", { class: "piece red" });
+                if (cell === 'b') pieceEl = elt("div", { class: "piece blue" });
+
+                const fieldEl = elt(
+                    "div",
+                    { class: "field", "data-col": String(col) },
+                    ...(pieceEl ? [pieceEl] : [])
+                );
+
+                if (state.gameOver) fieldEl.classList.add("inactive");
+                boardEl.appendChild(fieldEl);
+            }
+        }
+
+        if (state.gameOver && state.winner) {
+            setMessage(`Winner: ${state.winner === 'r' ? 'Red' : 'Blue'}`);
+        } else if (state.gameOver) {
+            setMessage("Game over.");
+        } else {
+            setMessage(`Next: ${state.next === 'r' ? 'Red' : 'Blue'}`);
+        }
+
+        return boardEl;
+    }
+
+    function dropInColumn(col) {
+        for (let row = ROWS - 1; row >= 0; row--) {
+            if (state.board[row][col] === '') {
+                state.board[row][col] = state.next;
+
+                const justPlayed = state.next;
+                if (window.connect4Winner(justPlayed, state.board)) {
+                    state.gameOver = true;
+                    state.winner = justPlayed;
+                } else {
+                    state.next = otherPlayer(state.next);
+                }
+                return true;
+            }
+        }
+        return false;
+    }
+
+    function attachEventHandler(boardEl) {
+        boardEl.addEventListener("click", (e) => {
+            if (state.gameOver) return;
+
+            const field = e.target.closest(".field");
+            if (!field) return;
+
+            const col = Number(field.getAttribute("data-col"));
+            if (!Number.isInteger(col)) return;
+
+            const changed = dropInColumn(col);
+            if (!changed) return;
+
+            render();
+        });
+    }
+
+    // ✅ LocalStorage load/save
+    function loadState() {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) {
+            setMessage("No saved game in LocalStorage.");
+            return;
+        }
+
+        try {
+            const data = JSON.parse(raw);
+
+            state = {
+                board: data.board ?? state.board,
+                next: data.next ?? 'b',
+                gameOver: data.gameOver ?? false,
+                winner: data.winner ?? ''
+            };
+
+            render();
+            setMessage("Loaded from LocalStorage.");
+        } catch (err) {
+            setMessage("Load failed (invalid data).");
+        }
+    }
+
+    function saveState() {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+        setMessage("Saved to LocalStorage.");
+    }
+
+    function initGame() {
+        const boardEl = render();
+        attachEventHandler(boardEl);
+
+        document.getElementById("loadBtn").addEventListener("click", loadState);
+        document.getElementById("saveBtn").addEventListener("click", saveState);
+    }
+
+    initGame();
+</script>
+
+</body>
+</html>

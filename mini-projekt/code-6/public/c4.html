@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <title>Vier gewinnt</title>
+
+    <!-- React + ReactDOM -->
+    <script src="lib/react/react.development.js"></script>
+    <script src="lib/react/react-dom.development.js"></script>
+
+    <!-- SJDON (no JSX) -->
+    <script src="lib/sjdon/sjdon.js"></script>
+
+    <!-- your existing styles -->
+    <link rel="stylesheet" href="styles.css" />
+</head>
+
+<body>
+<div id="root"></div>
+
+<script>
+    // -----------------------------
+    // Globals
+    // -----------------------------
+    const ROWS = 6;
+    const COLS = 7;
+
+    let state = {
+        board: Array(ROWS).fill('').map(() => Array(COLS).fill('')),
+        next: 'b',
+        gameOver: false,
+        winner: ''
+    };
+
+    // Aufgabe 3: history of immutable states
+    let stateSeq = []; // :contentReference[oaicite:1]{index=1}
+
+    // -----------------------------
+    // Aufgabe 2: Immutable helpers
+    // -----------------------------
+    function setInList(lst, idx, val) {
+        // return a new array, keep references for all other elements
+        return [
+            ...lst.slice(0, idx),
+            val,
+            ...lst.slice(idx + 1)
+        ];
+    }
+
+    function setInObj(obj, attr, val) {
+        // return a new object, keep references for other properties
+        return {
+            ...obj,
+            [attr]: val
+        };
+    }
+
+    // -----------------------------
+    // Helper functions
+    // -----------------------------
+    function otherPlayer(p) {
+        return p === 'b' ? 'r' : 'b';
+    }
+
+    function boardFull(board) {
+        // if top row has no empty cells, it's full
+        return board[0].every(cell => cell !== '');
+    }
+
+    function winnerOf(board) {
+        // returns 'r', 'b', or '' (none)
+        const rows = board.length;
+        const cols = board[0].length;
+
+        function check(player) {
+            function ok(r, c, dr, dc) {
+                for (let i = 0; i < 4; i++) {
+                    const rr = r + i * dr;
+                    const cc = c + i * dc;
+                    if (rr < 0 || rr >= rows || cc < 0 || cc >= cols) return false;
+                    if (board[rr][cc] !== player) return false;
+                }
+                return true;
+            }
+
+            for (let r = 0; r < rows; r++) {
+                for (let c = 0; c < cols; c++) {
+                    if (board[r][c] === player) {
+                        if (
+                            ok(r, c, 0, 1) ||   // →
+                            ok(r, c, 1, 0) ||   // ↓
+                            ok(r, c, 1, 1) ||   // ↘
+                            ok(r, c, 1, -1)     // ↙
+                        ) return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        if (check('r')) return 'r';
+        if (check('b')) return 'b';
+        return '';
+    }
+
+    // -----------------------------
+    // Components (Aufgabe 1)
+    // -----------------------------
+    const App = sjdon(() => (
+        ["div", {},
+            ["div", { className: "controls" },
+                ["button", { className: "undo", onClick: undo }, "Undo"]
+            ],
+            [Board, { board: state.board }],
+            ["div", { className: "message" }, statusText()]
+        ]
+    ));
+
+    const Board = sjdon(({ board }) => {
+        // flatten + create Field components
+        let flatBoard = [].concat(...board);
+        let fields = flatBoard.map((type, idx) => [Field, { type, idx }]);
+        return ["div", { className: "board", onClick: onBoardClick }, ...fields];
+    });
+
+    const Field = sjdon(({ type, idx }) => {
+        // encode column via data attribute (idx % COLS)
+        const col = idx % COLS;
+
+        if (type === 'r') {
+            return ["div", { className: "field", "data-col": String(col) },
+                ["div", { className: "piece red" }]
+            ];
+        }
+        if (type === 'b') {
+            return ["div", { className: "field", "data-col": String(col) },
+                ["div", { className: "piece blue" }]
+            ];
+        }
+        return ["div", { className: "field", "data-col": String(col) }];
+    });
+
+    function statusText() {
+        if (state.gameOver) {
+            if (state.winner === 'r') return "Winner: Red";
+            if (state.winner === 'b') return "Winner: Blue";
+            return "Draw.";
+        }
+        return state.next === 'r' ? "Next: Red" : "Next: Blue";
+    }
+
+    // -----------------------------
+    // Rendering
+    // -----------------------------
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+
+    function renderApp() {
+        root.render(parseSJDON([App]));
+    }
+
+    // -----------------------------
+    // Aufgabe 3: Click handler (immutable updates + history)
+    // -----------------------------
+    function onBoardClick(e) {
+        const field = e.target.closest(".field");
+        if (!field) return;
+
+        if (state.gameOver) return;
+
+        const col = Number(field.getAttribute("data-col"));
+        if (!Number.isInteger(col)) return;
+
+        // find drop row
+        let dropRow = -1;
+        for (let r = ROWS - 1; r >= 0; r--) {
+            if (state.board[r][col] === '') {
+                dropRow = r;
+                break;
+            }
+        }
+        if (dropRow === -1) return; // column full
+
+        // save current state BEFORE changing it
+        stateSeq.push(state); // :contentReference[oaicite:2]{index=2}
+
+        // build new board immutably:
+        // newRow = setInList(oldRow, col, state.next)
+        // newBoard = setInList(oldBoard, dropRow, newRow)
+        const oldRow = state.board[dropRow];
+        const newRow = setInList(oldRow, col, state.next);
+        const newBoard = setInList(state.board, dropRow, newRow);
+
+        // determine winner / draw
+        const w = winnerOf(newBoard);
+        const isDraw = (!w && boardFull(newBoard));
+
+        // build new state object immutably
+        let newState = state;
+        newState = setInObj(newState, "board", newBoard);
+
+        if (w) {
+            newState = setInObj(newState, "gameOver", true);
+            newState = setInObj(newState, "winner", w);
+        } else if (isDraw) {
+            newState = setInObj(newState, "gameOver", true);
+            newState = setInObj(newState, "winner", "");
+        } else {
+            newState = setInObj(newState, "next", otherPlayer(state.next));
+        }
+
+        state = newState;
+        renderApp();
+    }
+
+    // -----------------------------
+    // Aufgabe 3: Undo button
+    // -----------------------------
+    function undo() {
+        if (stateSeq.length === 0) return;
+        state = stateSeq.pop();
+        renderApp();
+    }
+
+    // start
+    renderApp();
+</script>
+</body>
+
+</html>

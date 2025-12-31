@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Vier gewinnt</title>
+
+    <link rel="stylesheet" href="styles.css" />
+
+    <!-- React + ReactDOM -->
+    <script src="lib/react/react.development.js"></script>
+    <script src="lib/react/react-dom.development.js"></script>
+
+    <!-- SJDON -->
+    <script src="lib/sjdon/sjdon.js"></script>
+</head>
+
+<body>
+<div id="root"></div>
+
+<script>
+    // =========================
+    // Config + Storage
+    // =========================
+    const ROWS = 6;
+    const COLS = 7;
+    const STORAGE_KEY = "connect4_state_v1";
+
+    // =========================
+    // Immutable helpers (Aufgabe 2 from previous step)
+    // =========================
+    function setInList(lst, idx, val) {
+        return [...lst.slice(0, idx), val, ...lst.slice(idx + 1)];
+    }
+
+    function setInObj(obj, attr, val) {
+        return { ...obj, [attr]: val };
+    }
+
+    // =========================
+    // Game helpers
+    // =========================
+    function makeEmptyBoard() {
+        return Array(ROWS).fill("").map(() => Array(COLS).fill(""));
+    }
+
+    function otherPlayer(p) {
+        return p === "b" ? "r" : "b";
+    }
+
+    function boardFull(board) {
+        return board[0].every(cell => cell !== "");
+    }
+
+    function winnerOf(board) {
+        const rows = board.length;
+        const cols = board[0].length;
+
+        function has4(player) {
+            function ok(r, c, dr, dc) {
+                for (let i = 0; i < 4; i++) {
+                    const rr = r + i * dr, cc = c + i * dc;
+                    if (rr < 0 || rr >= rows || cc < 0 || cc >= cols) return false;
+                    if (board[rr][cc] !== player) return false;
+                }
+                return true;
+            }
+
+            for (let r = 0; r < rows; r++) {
+                for (let c = 0; c < cols; c++) {
+                    if (board[r][c] === player) {
+                        if (
+                            ok(r, c, 0, 1) ||   // →
+                            ok(r, c, 1, 0) ||   // ↓
+                            ok(r, c, 1, 1) ||   // ↘
+                            ok(r, c, 1, -1)     // ↙
+                        ) return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        if (has4("r")) return "r";
+        if (has4("b")) return "b";
+        return "";
+    }
+
+    // =========================
+    // State + Undo history
+    // =========================
+    let state = {
+        board: makeEmptyBoard(),
+        next: "b",
+        gameOver: false,
+        winner: "" // "r" | "b" | ""
+    };
+
+    let stateSeq = []; // undo stack
+
+    // =========================
+    // UI Components (SJDON)
+    // =========================
+    const App = sjdon(() => (
+        ["div", { className: "app" },
+            ["div", { className: "topbar" },
+                ["div", { className: "title" }, "Vier gewinnt"],
+                ["div", { className: "btnrow" },
+                    ["button", { className: "btn", onClick: newGame }, "New Game"],
+                    ["button", { className: "btn undo", onClick: undo }, "Undo"],
+                    ["button", { className: "btn", onClick: saveLocal }, "Save"],
+                    ["button", { className: "btn", onClick: loadLocal }, "Load"]
+                ]
+            ],
+
+            [Board, { board: state.board, gameOver: state.gameOver }],
+
+            ["div", { className: "message" }, statusText()],
+
+            ["div", { className: "doclink" },
+                ["a", { href: "docs.html", target: "_blank", rel: "noopener noreferrer" }, "Project documentation"]
+            ]
+        ]
+    ));
+
+    const Board = sjdon(({ board, gameOver }) => {
+        const flat = [].concat(...board);
+        const fields = flat.map((type, idx) => [Field, { type, idx, gameOver }]);
+        return ["div", { className: "board", onClick: onBoardClick }, ...fields];
+    });
+
+    const Field = sjdon(({ type, idx, gameOver }) => {
+        const col = idx % COLS;
+        const cls = gameOver ? "field inactive" : "field";
+
+        if (type === "r") {
+            return ["div", { className: cls, "data-col": String(col) },
+                ["div", { className: "piece red" }]
+            ];
+        }
+        if (type === "b") {
+            return ["div", { className: cls, "data-col": String(col) },
+                ["div", { className: "piece blue" }]
+            ];
+        }
+        return ["div", { className: cls, "data-col": String(col) }];
+    });
+
+    function statusText() {
+        if (state.gameOver) {
+            if (state.winner === "r") return "Winner: Red";
+            if (state.winner === "b") return "Winner: Blue";
+            return "Draw.";
+        }
+        return state.next === "r" ? "Next: Red" : "Next: Blue";
+    }
+
+    // =========================
+    // Rendering
+    // =========================
+    const root = ReactDOM.createRoot(document.getElementById("root"));
+    function renderApp() { root.render(parseSJDON([App])); }
+
+    // =========================
+    // Game actions
+    // =========================
+    function newGame() {
+        state = {
+            board: makeEmptyBoard(),
+            next: "b",
+            gameOver: false,
+            winner: ""
+        };
+        stateSeq = [];
+        renderApp();
+    }
+
+    function undo() {
+        if (stateSeq.length === 0) return;
+        state = stateSeq.pop();
+        renderApp();
+    }
+
+    function onBoardClick(e) {
+        const field = e.target.closest(".field");
+        if (!field) return;
+        if (state.gameOver) return;
+
+        const col = Number(field.getAttribute("data-col"));
+        if (!Number.isInteger(col)) return;
+
+        // find drop row
+        let dropRow = -1;
+        for (let r = ROWS - 1; r >= 0; r--) {
+            if (state.board[r][col] === "") { dropRow = r; break; }
+        }
+        if (dropRow === -1) return; // column full
+
+        // push old state for undo
+        stateSeq.push(state);
+
+        // immutable board update
+        const oldRow = state.board[dropRow];
+        const newRow = setInList(oldRow, col, state.next);
+        const newBoard = setInList(state.board, dropRow, newRow);
+
+        // compute end conditions
+        const w = winnerOf(newBoard);
+        const draw = (!w && boardFull(newBoard));
+
+        // immutable state update
+        let newState = state;
+        newState = setInObj(newState, "board", newBoard);
+
+        if (w) {
+            newState = setInObj(newState, "gameOver", true);
+            newState = setInObj(newState, "winner", w);
+        } else if (draw) {
+            newState = setInObj(newState, "gameOver", true);
+            newState = setInObj(newState, "winner", "");
+        } else {
+            newState = setInObj(newState, "next", otherPlayer(state.next));
+        }
+
+        state = newState;
+        renderApp();
+    }
+
+    // =========================
+    // LocalStorage persistence
+    // =========================
+    function saveLocal() {
+        const payload = { state, stateSeq };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+        // quick UI feedback:
+        // (message already exists; keep it simple)
+    }
+
+    function loadLocal() {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return;
+
+        try {
+            const payload = JSON.parse(raw);
+            if (payload && payload.state && payload.state.board) {
+                state = payload.state;
+                stateSeq = Array.isArray(payload.stateSeq) ? payload.stateSeq : [];
+                renderApp();
+            }
+        } catch (_) { /* ignore invalid */ }
+    }
+
+    // start
+    renderApp();
+</script>
+</body>
+</html>

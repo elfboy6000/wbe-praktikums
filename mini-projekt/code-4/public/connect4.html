@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Vier gewinnt</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+
+<div class="board"></div>
+
+<div class="controls">
+    <button id="loadBtn" type="button">Load</button>
+    <button id="saveBtn" type="button">Save</button>
+</div>
+
+<div class="message" id="message"></div>
+
+<script src="elt.js"></script>
+<script src="connect4-winner-browser.js"></script>
+
+<script>
+    const ROWS = 6;
+    const COLS = 7;
+
+    // REST endpoint for the server-stored state
+    const SERVICE = "http://localhost:3000/api/data/c4state?api-key=c4game";
+
+    let state = {
+        board: Array(ROWS).fill('').map(() => Array(COLS).fill('')),
+        next: 'b',       // 'b' or 'r'
+        gameOver: false,
+        winner: ''
+    };
+
+    function otherPlayer(p) {
+        return p === 'b' ? 'r' : 'b';
+    }
+
+    function setMessage(msg) {
+        document.getElementById('message').textContent = msg || '';
+    }
+
+    function showBoard() {
+        const boardEl = document.querySelector(".board");
+
+        // clear
+        while (boardEl.firstChild) boardEl.removeChild(boardEl.firstChild);
+
+        // render 6x7 fields
+        for (let row = 0; row < ROWS; row++) {
+            for (let col = 0; col < COLS; col++) {
+                const cell = state.board[row][col];
+
+                let piece = null;
+                if (cell === 'r') piece = elt("div", { class: "piece red" });
+                if (cell === 'b') piece = elt("div", { class: "piece blue" });
+
+                const field = elt(
+                    "div",
+                    { class: "field", "data-col": String(col) },
+                    ...(piece ? [piece] : [])
+                );
+
+                // visually disable when game over
+                if (state.gameOver) field.classList.add("inactive");
+
+                boardEl.appendChild(field);
+            }
+        }
+
+        // message
+        if (state.gameOver && state.winner) {
+            setMessage(`Winner: ${state.winner === 'r' ? 'Red' : 'Blue'}`);
+        } else if (state.gameOver) {
+            setMessage("Game over.");
+        } else {
+            setMessage(`Next: ${state.next === 'r' ? 'Red' : 'Blue'}`);
+        }
+
+        return boardEl;
+    }
+
+    function dropInColumn(col) {
+        for (let row = ROWS - 1; row >= 0; row--) {
+            if (state.board[row][col] === '') {
+                state.board[row][col] = state.next;
+
+                // check winner for the player who just placed
+                const justPlayed = state.next;
+                if (window.connect4Winner(justPlayed, state.board)) {
+                    state.gameOver = true;
+                    state.winner = justPlayed;
+                } else {
+                    state.next = otherPlayer(state.next);
+                }
+
+                return true;
+            }
+        }
+        return false; // column full
+    }
+
+    function attachEventHandler(boardEl) {
+        boardEl.addEventListener("click", (e) => {
+            if (state.gameOver) return;
+
+            const field = e.target.closest(".field");
+            if (!field) return;
+
+            const col = Number(field.getAttribute("data-col"));
+            if (!Number.isInteger(col)) return;
+
+            const changed = dropInColumn(col);
+            if (!changed) return;
+
+            showBoard();
+        });
+    }
+
+    async function loadState() {
+        const res = await fetch(SERVICE);
+        if (!res.ok) throw new Error("Load failed: " + res.status);
+        const data = await res.json();
+
+        // trust server payload, but ensure fields exist
+        state = {
+            board: data.board ?? state.board,
+            next: data.next ?? 'b',
+            gameOver: data.gameOver ?? false,
+            winner: data.winner ?? ''
+        };
+
+        showBoard();
+    }
+
+    async function saveState() {
+        const body = JSON.stringify(state);
+
+        const res = await fetch(SERVICE, {
+            method: 'PUT',
+            headers: { 'Content-type': 'application/json' },
+            body
+        });
+
+        if (!res.ok) throw new Error("Save failed: " + res.status);
+    }
+
+    function initGame() {
+        const boardEl = showBoard();
+        attachEventHandler(boardEl);
+
+        document.getElementById("loadBtn").addEventListener("click", () => {
+            loadState().catch(err => setMessage(err.message));
+        });
+
+        document.getElementById("saveBtn").addEventListener("click", () => {
+            saveState()
+                .then(() => setMessage("Saved."))
+                .catch(err => setMessage(err.message));
+        });
+    }
+
+    initGame();
+</script>
+
+</body>
+</html>
